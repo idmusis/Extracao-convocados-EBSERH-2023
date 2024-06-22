@@ -1,0 +1,149 @@
+library(rvest)
+library(dplyr)
+library(pdftools)
+library(openxlsx)
+
+# URL inicial
+base_url <- "https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/concurso-no-01-2023-ebserh-nacional/convocacoes"
+page <- read_html(base_url)
+
+# Função para extrair texto de PDF
+extract_text_from_pdf <- function(url) {
+  pdf_text(url)
+}
+
+# Lista para armazenar os dados
+data <- list()
+
+# Encontrar todos os hospitais
+hospital_links <- page %>% html_nodes(".card a") %>% html_attr("href")
+hospital_names <- page %>% html_nodes(".card a") %>% html_text() %>% gsub("\\s+", " ", .) %>% trimws()
+
+# Verificar se os links foram encontrados corretamente
+print("Links dos hospitais:")
+print(head(hospital_links))
+print("Nomes dos hospitais:")
+print(head(hospital_names))
+
+# Selecionar o hospital UFMT
+ufmt_index <- grep("UFMT", hospital_names, ignore.case = TRUE)
+hospital_name <- hospital_names[ufmt_index]
+hospital_url <- hospital_links[ufmt_index]
+
+# Verificar URL do hospital UFMT
+print("URL do hospital UFMT:")
+print(hospital_url)
+
+# Inicializar URL da página e número da página
+current_page_url <- hospital_url
+current_page_number <- 0
+
+
+# Função para verificar se uma página contém links de editais válidos
+page_contains_valid_links <- function(page) {
+  links <- page %>% html_nodes("a[href*='/view']") %>% html_attr("href")
+  filtered_indices <- which(grepl("/view", links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", links))
+  links <- links[filtered_indices]
+  
+  return(length(links) > 0)
+}
+
+
+while (!is.null(current_page_url)) {
+  # Acessar a página do hospital UFMT
+  hospital_page <- read_html(current_page_url)
+  
+  # Encontrar todos os editais do hospital UFMT
+  edital_links <- hospital_page %>% html_nodes("a[href*='/view']") %>% html_attr("href")
+  edital_texts <- hospital_page %>% html_nodes("a[href*='/view']") %>% html_text()
+  
+  # Filtrar links que contêm "/view" e começam com a URL especificada
+  filtered_indices <- which(grepl("/view", edital_links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", edital_links))
+  
+  # Obter os links e textos correspondentes aos índices filtrados
+  edital_links <- edital_links[filtered_indices]
+  edital_texts <- edital_texts[filtered_indices]
+  
+  # Verificar se os links dos editais foram encontrados corretamente
+  print("Links dos editais:")
+  print(head(edital_links))
+  print("Textos dos editais:")
+  print(head(edital_texts))
+  
+  # Loop para percorrer todos os editais do hospital UFMT
+  for (i in 1:length(edital_links)) {
+    edital_text <- edital_texts[i]
+    edital_url <- edital_links[i]
+    
+    # Verificar URL do edital
+    if (!is.na(edital_url) && nchar(edital_url) > 0) {
+      print(paste("URL do edital:", edital_url))
+      
+      # Construir link do PDF
+      pdf_link <- sub("/view$", "/@@download/file", edital_url)
+      
+      # Verificar link do PDF
+      print(paste("Link do PDF:", pdf_link))
+      
+      if (!is.na(pdf_link) && nchar(pdf_link) > 0) {
+        full_pdf_url <- pdf_link
+        
+        # Tentar extrair texto do PDF, capturando qualquer erro
+        try({
+          pdf_text <- extract_text_from_pdf(full_pdf_url)
+          
+          # Parsear o texto do PDF para encontrar as informações necessárias
+          lines <- unlist(strsplit(pdf_text, "\n"))
+          
+          convocados <- FALSE
+          current_convocado <- NULL
+          for (line in lines) {
+            if (grepl("^1\\. ", line)) {
+              convocados <- TRUE
+            }
+            if (convocados) {
+              if (grepl("^2\\.\\D", line)) {
+                convocados <- FALSE
+                if (!is.null(current_convocado)) {
+                  data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
+                  current_convocado <- NULL
+                }
+              } else {
+                if (grepl("^\\d+\\.\\d+ ", line)) {
+                  if (!is.null(current_convocado)) {
+                    data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
+                  }
+                  current_convocado <- line
+                } else {
+                  if (!is.null(current_convocado)) {
+                    current_convocado <- paste(current_convocado, line)
+                  }
+                }
+              }
+            }
+          }
+          if (!is.null(current_convocado)) {
+            data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
+          }
+        }, silent = TRUE)  # Capturar e ignorar erros
+      }
+    }
+  }
+  # Atualizar o link para a próxima página
+  current_page_number <- current_page_number + 20
+  next_page_url <- paste0(hospital_url, "?b_start:int=", current_page_number)
+  
+  # Verificar se a próxima página contém links de editais válidos
+  next_page_html <- try(read_html(next_page_url), silent = TRUE)
+  if (inherits(next_page_html, "try-error") || !page_contains_valid_links(next_page_html)) {
+    current_page_url <- NULL
+  } else {
+    current_page_url <- next_page_url
+  }
+}
+
+
+
+# Converter lista em dataframe e salvar em Excel
+df <- bind_rows(data)
+unique(df$Edital)
