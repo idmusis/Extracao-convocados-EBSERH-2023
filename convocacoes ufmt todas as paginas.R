@@ -96,7 +96,13 @@ while (!is.null(current_page_url)) {
           
           #Verificando as linhas que contém convocados
           convocados <- FALSE
+          last_index <- NULL
           for (line in lines) {
+            #Obtendo data
+            if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
+              edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+")
+            }
+            
             if (grepl("^1\\.1 ", line)) { # Inicio da lista de convocados: o primeiro subitem de 1 ("1.1")
               convocados <- TRUE
             }
@@ -107,17 +113,21 @@ while (!is.null(current_page_url)) {
                 # Captura linhas do formato "1.1 Cargo Nome"
                 if (grepl("^\\d+\\.\\d+ ", line)) {
                   indice <- str_extract(line, "^\\d+\\.\\d+")
-                  cargo <- str_extract(line, "(?<=^\\d+\\.\\d+\\s)[^\\d]+(?=\\s+\\d+[ºª])") # Captura "Cargo" até a colocação do participante
+
+                  cargo_completo <- str_trim(str_replace(line, "^\\d+\\.\\d+\\s+", "")) # Captura "Cargo" até a colocação do participante
+                  cargo <- str_trim(str_extract(cargo_completo, "^[^\\(]+"))  # Captura o cargo até o primeiro parêntese
+                  observacao <- str_extract(cargo_completo, "\\([^\\)]+\\)")  # Captura a observação dentro dos parênteses
                   nomes <- str_extract_all(line, "\\d+[ºª] [^;]+")  # Captura todos os nomes listados
                   nomes_concat <- paste(unlist(nomes), collapse = "; ")  # Concatena todos os nomes com ponto e vírgula
-                  data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Cargo=cargo, Nomes = nomes_concat)))
-                } else  {
-                  # Captura linhas adicionais que continuam após a quebra
-                  if (length(data) > 0 ) {
-                    last_entry <- data[[length(data)]]
-                    last_entry$Nomes <- paste(last_entry$Nomes, line)
-                    data[[length(data)]] <- last_entry
-                  }
+                  data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Data=edital_data, Índice=indice,Cargo=cargo, "Obs. Cargo"=observacao,Nomes = nomes_concat)))
+                 } 
+                 else  {
+                #   # Captura linhas adicionais que continuam após a quebra
+                if (length(data) > 0 ) {
+                  last_entry <- data[[length(data)]]
+                  last_entry$Nomes <- paste(last_entry$Nomes, line)
+                  data[[length(data)]] <- last_entry
+                 }
                 }
               }
             }
