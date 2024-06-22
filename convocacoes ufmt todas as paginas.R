@@ -1,3 +1,4 @@
+library(stringr)
 library(rvest)
 library(dplyr)
 library(pdftools)
@@ -57,7 +58,7 @@ while (!is.null(current_page_url)) {
   edital_links <- hospital_page %>% html_nodes("a[href*='/view']") %>% html_attr("href")
   edital_texts <- hospital_page %>% html_nodes("a[href*='/view']") %>% html_text()
   
-  # Filtrar links que contêm "/view" e começam com a URL especificada
+  # Filtrar links que contêm "/view" e começam com a URL do concurso
   filtered_indices <- which(grepl("/view", edital_links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", edital_links))
   
   # Obter os links e textos correspondentes aos índices filtrados
@@ -79,10 +80,8 @@ while (!is.null(current_page_url)) {
     if (!is.na(edital_url) && nchar(edital_url) > 0) {
       print(paste("URL do edital:", edital_url))
       
-      # Construir link do PDF
+      # Construir e verificar link do PDF
       pdf_link <- sub("/view$", "/@@download/file", edital_url)
-      
-      # Verificar link do PDF
       print(paste("Link do PDF:", pdf_link))
       
       if (!is.na(pdf_link) && nchar(pdf_link) > 0) {
@@ -92,43 +91,42 @@ while (!is.null(current_page_url)) {
         try({
           pdf_text <- extract_text_from_pdf(full_pdf_url)
           
-          # Parsear o texto do PDF para encontrar as informações necessárias
-          lines <- unlist(strsplit(pdf_text, "\n"))
+          # Parsear o texto do PDF
+          lines <- unlist(strsplit(pdf_text, "\n")) 
           
+          #Verificando as linhas que contém convocados
           convocados <- FALSE
-          current_convocado <- NULL
           for (line in lines) {
-            if (grepl("^1\\. ", line)) {
+            if (grepl("^1\\.1 ", line)) { # Inicio da lista de convocados: o primeiro subitem de 1 ("1.1")
               convocados <- TRUE
             }
             if (convocados) {
-              if (grepl("^2\\.\\D", line)) {
+              if (grepl("^2\\.\\D", line)) { # Fim da lista de convocados: linhas com "2. "
                 convocados <- FALSE
-                if (!is.null(current_convocado)) {
-                  data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
-                  current_convocado <- NULL
-                }
               } else {
+                # Captura linhas do formato "1.1 Cargo Nome"
                 if (grepl("^\\d+\\.\\d+ ", line)) {
-                  if (!is.null(current_convocado)) {
-                    data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
-                  }
-                  current_convocado <- line
-                } else {
-                  if (!is.null(current_convocado)) {
-                    current_convocado <- paste(current_convocado, line)
+                  indice <- str_extract(line, "^\\d+\\.\\d+")
+                  cargo <- str_extract(line, "(?<=^\\d+\\.\\d+\\s)[^\\d]+(?=\\s+\\d+[ºª])") # Captura "Cargo" até a colocação do participante
+                  nomes <- str_extract_all(line, "\\d+[ºª] [^;]+")  # Captura todos os nomes listados
+                  nomes_concat <- paste(unlist(nomes), collapse = "; ")  # Concatena todos os nomes com ponto e vírgula
+                  data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Cargo=cargo, Nomes = nomes_concat)))
+                } else  {
+                  # Captura linhas adicionais que continuam após a quebra
+                  if (length(data) > 0 ) {
+                    last_entry <- data[[length(data)]]
+                    last_entry$Nomes <- paste(last_entry$Nomes, line)
+                    data[[length(data)]] <- last_entry
                   }
                 }
               }
             }
           }
-          if (!is.null(current_convocado)) {
-            data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Convocado = current_convocado)))
-          }
         }, silent = TRUE)  # Capturar e ignorar erros
       }
     }
   }
+  
   # Atualizar o link para a próxima página
   current_page_number <- current_page_number + 20
   next_page_url <- paste0(hospital_url, "?b_start:int=", current_page_number)
@@ -142,8 +140,8 @@ while (!is.null(current_page_url)) {
   }
 }
 
-
-
-# Converter lista em dataframe e salvar em Excel
+# Converter lista em dataframe
+  
 df <- bind_rows(data)
-unique(df$Edital)
+unique(df$Edital) # Checando o número de editais
+View(df)
