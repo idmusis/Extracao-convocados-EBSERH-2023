@@ -2,6 +2,8 @@ library(DBI)
 library(RSQLite)
 library(rvest)
 library(dplyr)
+library(readxl)
+library(openxlsx)
 
 # Conectar ao banco de dados SQLite
 db <- dbConnect(RSQLite::SQLite(), dbname = "editais.sqlite")
@@ -16,35 +18,28 @@ CREATE TABLE IF NOT EXISTS editais (
   indice TEXT,
   cargo TEXT,
   observacao_cargo TEXT,
-  nomes TEXT
+  nomes TEXT,
+  microrregiao TEXT
 )")
 
 
 # Função para adicionar editais ao banco se não existirem
-add_edital_if_new <- function(hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes) {
+add_edital_if_new <- function(hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes,microrregiao) {
   # Verificar se a entrada já existe baseada em critérios únicos
   exists <- dbGetQuery(db, sprintf("SELECT 1 FROM editais WHERE edital = '%s' AND indice = '%s' AND nomes = '%s'", edital, indice, nomes))
   if (nrow(exists) == 0) {
-    dbExecute(db, "INSERT INTO editais (hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes) VALUES (?, ?, ?, ?, ?, ?, ?)", 
-              params = list(hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes))
-    print(paste("Novo edital adicionado: ", edital, " com índice: ", id))
+    dbExecute(db, "INSERT INTO editais (hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes,microrregiao) VALUES (?, ?, ?, ?, ?, ?, ?)", 
+              params = list(hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes,microrregiao))
+    print(paste("Novo edital adicionado: ", edital, " de número: ", id))
   }
-}
-
-
-
-# Função para verificar se o link já foi processado
-link_already_processed <- function(url) {
-  exists <- dbGetQuery(db, sprintf("SELECT 1 FROM editais WHERE url = '%s'", url))
-  return(nrow(exists) > 0)
 }
 
 # Ler a página principal e extrair os links dos hospitais
 hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/concurso-no-01-2023-ebserh-nacional/convocacoes")
 
 
-hospital_links <- hospital_page %>% html_nodes(".card a") %>% html_attr("href")
-hospital_names <- hospital_page %>% html_nodes(".card a") %>% html_text() %>% gsub("\\s+", " ", .) %>% trimws()
+selected_hospital_links <- hospital_page %>% html_nodes(".card a") %>% html_attr("href")
+selected_hospital_names <- hospital_page %>% html_nodes(".card a") %>% html_text() %>% gsub("\\s+", " ", .) %>% trimws()
 
 
 #Estabelecendo como base para não atualizar de todos os hospitais
@@ -54,14 +49,58 @@ hospital_names <- hospital_page %>% html_nodes(".card a") %>% html_text() %>% gs
 # hospital_names <- hospital_names[microrregiao4_index]
 # hospital_links <- hospital_links[microrregiao4_index]
 
+# Dicionário para mapear hospitais para microrregiões
+microrregiao_map <- list(
+  "EBSERH-SEDE" = 4,
+  "HUB-UnB" = 4,
+  "HC-UFG" = 4,
+  "HU-UFGD" = 4,
+  "HUMAP-UFMS" = 4,
+  "HUJM-UFMT" = 4,
+  "HDT-UFT" = 4,
+  "HUGV-UFAM" = 1,
+  "HU-UNIFAP" = 1,
+  "HU-UFMA" = 1,
+  "CHU-UFPA" = 1,
+  "HU-UFPI" = 1,
+  "CH-UFC" = 2,
+  "HUJB-UFCG" = 2,
+  "HUAC-UFCG" = 2,
+  "HULW-UFPB" = 2,
+  "HUOL-UFRN" = 2,
+  "MEJC-UFRN" = 2,
+  "HUAB-UFRN" = 2,
+  "HUPAA-UFAL" = 3,
+  "MCO-UFBA" = 3,
+  "HUPES-UFBA" = 3,
+  "HC-UFPE" = 3,
+  "HU-UNIVASF" = 3,
+  "HU-UFS" = 3,
+  "HUL-UFS" = 3,
+  "HUCAM-UFES" = 5,
+  "HC-UFMG" = 5,
+  "HU-UFJF" = 5,
+  "HC-UFTM" = 5,
+  "HC-UFU" = 5,
+  "HUAP-UFF" = 5,
+  "HUGG-UNIRIO" = 5,
+  "HU-UFSCAR" = 5,
+  "CHC-UFPR" = 6,
+  "HE-UFPEL" = 6,
+  "HU-FURG" = 6,
+  "HUSM-UFSM" = 6,
+  "HU-UFSC" = 6
+)
 
-# Filtrar links que ainda não foram processados
-selected_hospital_links <- hospital_links[!sapply(hospital_links, link_already_processed)]
-selected_hospital_names <- hospital_names[!sapply(hospital_links, link_already_processed)]
+# Função para obter a microrregião baseada no hospital
+get_microrregiao <- function(hospital) {
+  return(microrregiao_map[[hospital]] %||% 0)  # Retorna 0 se o hospital não estiver mapeado
+}
 
 # Inicializar URL da página e número da página para cada hospital
 for (j in 1:length(selected_hospital_links)) {
   hospital_name <- selected_hospital_names[j]
+  microrregiao <- get_microrregiao(hospital_name)
   current_page_url <- selected_hospital_links[j]
   current_page_number <- 0
   
@@ -79,6 +118,12 @@ for (j in 1:length(selected_hospital_links)) {
     # Obter os links e textos correspondentes aos índices filtrados
     edital_links <- edital_links[filtered_indices]
     edital_texts <- edital_texts[filtered_indices]
+    
+    #Filtrar apenas os que não foram processados
+    editais_processados <- (dbGetQuery(db, "SELECT edital FROM editais"))$edital
+    unprocessed_indices <- which(!edital_texts %in% editais_processados)
+    edital_links <- edital_links[unprocessed_indices]
+    edital_texts <- edital_texts[unprocessed_indices]
     
     # Verificar se os links dos editais foram encontrados corretamente
     print("Links dos editais:")
@@ -134,7 +179,7 @@ for (j in 1:length(selected_hospital_links)) {
                     observacao <- str_extract(cargo_completo, "\\([^\\)]+\\)")  # Captura a observação dentro dos parênteses
                     nomes <- str_extract_all(line, "\\d+[ºª] [^;]+")  # Captura todos os nomes listados
                     nomes_concat <- paste(unlist(nomes), collapse = "; ")  # Concatena todos os nomes com ponto e vírgula
-                    data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat)))
+                    data <- append(data, list(data.frame(Hospital = hospital_name, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat,Microrregião=microrregiao)))
                   } else {
                     # Captura linhas adicionais que continuam após a quebra
                     if (length(data) > 0) {
@@ -167,12 +212,12 @@ for (j in 1:length(selected_hospital_links)) {
 df <- bind_rows(data)
 df2<-df
 # Renomeando colunas para corresponder aos parâmetros da função
-names(df) <- c("hospital", "edital", "data_publicacao", "indice", "cargo", "observacao_cargo", "nomes")
+names(df) <- c("hospital", "edital", "data_publicacao", "indice", "cargo", "observacao_cargo", "nomes","microrregiao")
 
 # Atualizando banco de dados:
 apply(df, 1, function(row) {
   add_edital_if_new(row["hospital"], row["edital"], row["data_publicacao"], row["indice"], 
-                    row["cargo"], row["observacao_cargo"], row["nomes"])
+                    row["cargo"], row["observacao_cargo"], row["nomes"],row["microrregiao"])
 })
 
 
