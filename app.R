@@ -29,13 +29,7 @@ CREATE TABLE IF NOT EXISTS editais (
 
 # Função para adicionar editais ao banco se não existirem
 add_edital_if_new <- function(microrregiao,hospital, edital_numero, edital, data_publicacao, indice, cargo, observacao_cargo, nomes) {
-  # # Verificar se a entrada já existe baseada em critérios únicos
-  # exists <- dbGetQuery(db, sprintf("SELECT 1 FROM editais WHERE edital = '%s' AND indice = '%s' AND nomes = '%s'", edital, indice, nomes))
-  # if (nrow(exists) == 0) {
-  #   dbExecute(db, "INSERT INTO editais (microrregiao,hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
-  #             params = list(microrregiao,hospital, edital, data_publicacao, indice, cargo, observacao_cargo, nomes))
-  #   print(paste("Novo edital adicionado: ", edital))
-  # }
+
   # Verificar se a entrada já existe baseada em critérios únicos
   query <- "SELECT 1 FROM editais WHERE edital = ? AND indice = ? AND nomes = ?"
   exists <- dbGetQuery(db, query, params = list(edital, indice, nomes))
@@ -60,14 +54,6 @@ hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/
 
 selected_hospital_links <- hospital_page %>% html_nodes(".card a") %>% html_attr("href")
 selected_hospital_names <- hospital_page %>% html_nodes(".card a") %>% html_text() %>% gsub("\\s+", " ", .) %>% trimws()
-
-
-#Estabelecendo como base para não atualizar de todos os hospitais
-# microrregiao4_hospitais <- c("SEDE", "UnB", "UFG", "UFGD", "UFMS", "UFMT", "HDT-UFT")
-# microrregiao4_index <- grep(paste(microrregiao4_hospitais, collapse = "|"), hospital_names, ignore.case = TRUE)
-# 
-# hospital_names <- hospital_names[microrregiao4_index]
-# hospital_links <- hospital_links[microrregiao4_index]
 
 # Dicionário para mapear hospitais para microrregiões
 microrregiao_map <- list(
@@ -134,8 +120,7 @@ for (j in 1:length(selected_hospital_links)) {
   consecutive_invalid_pages <-0
   
   while (!is.null(current_page_url)) {
-    # Acessar a página do hospital
-    #hospital_page <- read_html(current_page_url)
+
     # Acessar a página do hospital com tryCatch para capturar possíveis erros
     hospital_page <- tryCatch({
       read_html(current_page_url)
@@ -181,9 +166,6 @@ for (j in 1:length(selected_hospital_links)) {
       edital_url <- edital_links[i]
       # Verificar URL do edital
       if (length(edital_url) > 0 && (!is.na(edital_url) && nchar(edital_url) > 0)){
-        # if (
-        #   !is.na(edital_url)
-        #   ) {
         print(paste("URL do edital:", edital_url))
         
         # Construir e verificar link do PDF
@@ -270,15 +252,7 @@ for (j in 1:length(selected_hospital_links)) {
       
       return(length(links) > 0)
     }
-   #  
-   #  if ((current_page_number >= 100) #||(inherits(next_page_html, "try-error") || !page_contains_valid_links(next_page_html))
-   #      )
-   #       {
-   #    current_page_url <- NULL
-   #  } else {
-   #    current_page_url <- next_page_url
-   #  
-   # }
+
     while (!is.null(current_page_url) && consecutive_invalid_pages < 3) {
       next_page_url <- update_page_url(current_page_url, current_page_number)
       next_page_html <- try(read_html(next_page_url), silent = TRUE)
@@ -323,9 +297,8 @@ dbDisconnect(db)
 library(googlesheets4)
 
 # Importando pro excel e google sheets ----
-#tabela$edital_numero<-as.numeric(tabela$edital_numero)
 
-atualizar_excel<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE,google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") {
+atualizar_excel<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE,google_sheet_id) {
   
   tabela <- tabela[order(tabela$edital_numero, decreasing = FALSE), ]
   if(excel){
@@ -379,6 +352,6 @@ if (nrow(dados_novos) > 0) {
   }
 }
 
-atualizar_excel(sheets = FALSE)
-atualizar_excel(excel=FALSE)
-#atualizar_excel(excel=FALSE)
+atualizar_excel(sheets = FALSE) # Atualizar excel
+atualizar_excel(excel=FALSE, google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheet
+
