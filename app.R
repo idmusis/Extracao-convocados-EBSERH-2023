@@ -29,7 +29,7 @@ CREATE TABLE IF NOT EXISTS editais (
 
 # Função para adicionar editais ao banco se não existirem
 add_edital_if_new <- function(microrregiao,hospital, edital_numero, edital, data_publicacao, indice, cargo, observacao_cargo, nomes) {
-
+  
   # Verificar se a entrada já existe
   query <- "SELECT 1 FROM editais WHERE edital = ? AND indice = ? AND nomes = ?"
   exists <- dbGetQuery(db, query, params = list(edital, indice, nomes))
@@ -104,6 +104,23 @@ get_microrregiao <- function(hospital) {
   return(microrregiao_map[[hospital_upper]] %||% 0)  # Retorna 0 se o hospital não estiver mapeado
 }
 
+get_next_page_url <- function(page) {
+  next_page_node <- page %>% html_node("a.proximo")
+  if (!is.null(next_page_node)) {
+    return(next_page_node %>% html_attr("href"))
+  } else {
+    return(NULL)  # Retorna NULL se não houver link para a próxima página
+  }
+}
+
+page_contains_valid_links <- function(page) {
+  links <- page %>% html_nodes("a[href*='/view']") %>% html_attr("href")
+  filtered_indices <- which(grepl("/view", links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", links))
+  links <- links[filtered_indices]
+  
+  return(length(links) > 0)
+}
+
 data <- list()
 
 # inicio do loop ----
@@ -114,11 +131,13 @@ for (j in 1:length(selected_hospital_links)) {
   microrregiao <- get_microrregiao(hospital_name)
   current_page_url <- selected_hospital_links[j]
   current_page_number <- 0
-  consecutive_invalid_pages <-0
+  
+  message(paste0("Hospital:",hospital_name))
   
   while (!is.null(current_page_url)) {
-
+    
     # Acessar a página do hospital com tryCatch para capturar possíveis erros
+    
     hospital_page <- tryCatch({
       read_html(current_page_url)
     }, error = function(e) {
@@ -150,119 +169,88 @@ for (j in 1:length(selected_hospital_links)) {
     
     if (length(edital_links) > 0){
       
-    # Loop para percorrer todos os editais do hospital
-    for (i in 1:length(edital_links)) {
-      edital_text <- edital_texts[i]
-      edital_url <- edital_links[i]
-      # Verificar URL do edital
-      if (length(edital_url) > 0 && (!is.na(edital_url) && nchar(edital_url) > 0)){
-        
-        # Construir e verificar link do PDF
-        pdf_link <- sub("/view$", "/@@download/file", edital_url)
-        print(paste("Link do PDF:", pdf_link)) #debug
-        
-        if (!is.na(pdf_link) || nchar(pdf_link) > 0) {
+      # Loop para percorrer todos os editais do hospital
+      for (i in 1:length(edital_links)) {
+        edital_text <- edital_texts[i]
+        edital_url <- edital_links[i]
+        # Verificar URL do edital
+        if (length(edital_url) > 0 && (!is.na(edital_url) && nchar(edital_url) > 0)){
           
-          # Tentar extrair texto do PDF, capturando erros
-          try({
-            pdf_text <- pdf_text(pdf_link)
+          # Construir e verificar link do PDF
+          pdf_link <- sub("/view$", "/@@download/file", edital_url)
+          message(paste("Link do PDF:", pdf_link)) #debug
+          
+          if (!is.na(pdf_link) || nchar(pdf_link) > 0) {
             
-            # Parsear o texto do PDF
-            lines <- unlist(strsplit(pdf_text, "\n")) 
-
-            #Verificando as linhas que contém convocados
-            convocados <- FALSE
-            last_index <- NULL
-            for (line in lines) {
-              # Obtendo data
-              if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
-                edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+")
-              }
-              # Obtendo número do edital  
-              # Inicio da lista de convocados: o primeiro subitem de 1 ("1.1")
-              if (grepl("^\\s*1\\.1 ", line)) { 
-                convocados <- TRUE
-              }
-              if (convocados) {
-                if (grepl("^\\s*2\\.", line)) { # Fim da lista de convocados: linhas com "2. "
-                  convocados <- FALSE
-                } else {
-                  # Captura linhas do formato "1.1 Cargo Nome"
-                  if (grepl("^\\s*\\d+\\.\\d+ ", line)) {
-                    indice <- str_extract(line, "^\\s*\\d+\\.\\d+")
-                    
-                    cargo_completo <- str_trim(str_replace(line, "^\\d+\\.\\d+\\s+", "")) # Captura "Cargo" até a colocação do participante
-                    edital_numero <- str_extract(edital_text, "\\d+")
-                    cargo <- str_trim(str_extract(cargo_completo, "^[^\\(]+"))  # Captura o cargo até o primeiro parêntese
-                    observacao <- str_extract(cargo_completo, "\\([^\\)]+\\)")  # Captura a observação dentro dos parênteses
-                    nomes <- str_extract_all(line, "\\d+[ºª] [^;]+")  # Captura todos os nomes listados
-                    nomes_concat <- paste(unlist(nomes), collapse = "; ")  # Concatena todos os nomes com ponto e vírgula
-                    data <- append(data, list(data.table(Microrregião=microrregiao,Hospital = hospital_name, edital_numero = edital_numero, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat)))
-                    
-                    ##debug:
-                    print(list(data.table(Microrregião=microrregiao,Hospital = hospital_name, edital_numero = edital_numero, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat)))
-                    
+            # Tentar extrair texto do PDF, capturando erros
+            try({
+              pdf_text <- pdf_text(pdf_link)
+              
+              # Parsear o texto do PDF
+              lines <- unlist(strsplit(pdf_text, "\n")) 
+              
+              #Verificando as linhas que contém convocados
+              convocados <- FALSE
+              last_index <- NULL
+              for (line in lines) {
+                # Obtendo data
+                if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
+                  edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+")
+                }
+                # Obtendo número do edital  
+                # Inicio da lista de convocados: o primeiro subitem de 1 ("1.1")
+                if (grepl("^\\s*1\\.1 ", line)) { 
+                  convocados <- TRUE
+                }
+                if (convocados) {
+                  if (grepl("^\\s*2\\.", line)) { # Fim da lista de convocados: linhas com "2. "
+                    convocados <- FALSE
                   } else {
-                    # Captura linhas adicionais que continuam após a quebra
-                    if (length(data) > 0) {
-                      last_entry <- data[[length(data)]]
-                      last_entry$Nomes <- paste(last_entry$Nomes, line)
-                      data[[length(data)]] <- last_entry
+                    # Captura linhas do formato "1.1 Cargo Nome"
+                    if (grepl("^\\s*\\d+\\.\\d+ ", line)) {
+                      indice <- str_extract(line, "^\\s*\\d+\\.\\d+")
+                      
+                      cargo_completo <- str_trim(str_replace(line, "^\\d+\\.\\d+\\s+", "")) # Captura "Cargo" até a colocação do participante
+                      edital_numero <- str_extract(edital_text, "\\d+")
+                      cargo <- str_trim(str_extract(cargo_completo, "^[^\\(]+"))  # Captura o cargo até o primeiro parêntese
+                      observacao <- str_extract(cargo_completo, "\\([^\\)]+\\)")  # Captura a observação dentro dos parênteses
+                      nomes <- str_extract_all(line, "\\d+[ºª] [^;]+")  # Captura todos os nomes listados
+                      nomes_concat <- paste(unlist(nomes), collapse = "; ")  # Concatena todos os nomes com ponto e vírgula
+                      data <- append(data, list(data.table(Microrregião=microrregiao,Hospital = hospital_name, edital_numero = edital_numero, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat)))
+                      
+                      ##debug:
+                      print(list(data.table(Microrregião=microrregiao,Hospital = hospital_name, edital_numero = edital_numero, Edital = edital_text, Data = edital_data, Índice = indice, Cargo = cargo, "Obs. Cargo" = observacao, Nomes = nomes_concat)))
+                      
+                    } else {
+                      # Captura linhas adicionais que continuam após a quebra
+                      if (length(data) > 0) {
+                        last_entry <- data[[length(data)]]
+                        last_entry$Nomes <- paste(last_entry$Nomes, line)
+                        data[[length(data)]] <- last_entry
+                      }
                     }
                   }
                 }
               }
-            }
-          }, silent = TRUE)  # Capturar e ignorar erros
+            }, silent = TRUE)  # Capturar e ignorar erros
+          }
         }
       }
     }
-    }
     
-    # Atualizar o link para a próxima página
-    current_page_number <- current_page_number + 20
-    update_page_url <- function(current_page_url, current_page_number) {
-      # Verifica se o URL já contém o parâmetro "?b_start:int="
-      if (grepl("\\?b_start:int=", current_page_url)) {
-        # Substitui o valor atual do parâmetro pelo novo valor
-        new_url <- sub("\\?b_start:int=\\d+", paste0("?b_start:int=", current_page_number + 20), current_page_url)
-      } else {
-        # Adiciona o parâmetro ao URL
-        new_url <- paste0(current_page_url, "?b_start:int=", current_page_number + 20)
-      }
-      return(new_url)
-    }
-    next_page_url <- update_page_url(current_page_url, current_page_number)
+    ## Atualizar o link para a próxima página ----
     
-    # Verificar se a próxima página contém links de editais válidos
-    next_page_html <- try(read_html(next_page_url), silent = TRUE)
-    page_contains_valid_links <- function(page) {
-      links <- page %>% html_nodes("a[href*='/view']") %>% html_attr("href")
-      filtered_indices <- which(grepl("/view", links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", links))
-      links <- links[filtered_indices]
-      
-      return(length(links) > 0)
-    }
+    next_page_url <- get_next_page_url(hospital_page) # Atualiza o link para a próxima página usando o conteúdo HTML da página atual
+    
+    if (!is.null(next_page_url) && !is.na(next_page_url) && next_page_url != "") {
+      current_page_url <- next_page_url
+      message(paste("Navegando para a próxima página:", current_page_url))  # Debugging: Verificar URL da próxima página
 
-    while (!is.null(current_page_url) && consecutive_invalid_pages < 10) {
-      next_page_url <- update_page_url(current_page_url, current_page_number)
-      next_page_html <- try(read_html(next_page_url), silent = TRUE)
-      
-      if (inherits(next_page_html, "try-error") || !page_contains_valid_links(next_page_html)) {
-        consecutive_invalid_pages <- consecutive_invalid_pages + 1
-      } else {
-        consecutive_invalid_pages <- 0
-        current_page_url <- next_page_url
-      }
-      
-      # Incrementa o número da página atual
-      current_page_number <- current_page_number + 20
+    } else {
+      message("Não há mais páginas para navegar.")
+      break  # Interrompe o loop se não houver próxima página
     }
     
-    # Se x páginas consecutivas forem inválidas, current_page_url se torna NULL
-    if (consecutive_invalid_pages >= 10) {
-      current_page_url <- NULL
-    }
   }
 }
 
@@ -290,39 +278,39 @@ library(googlesheets4)
 
 # Importando pro excel e google sheets ----
 
-atualizar_excel<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE,google_sheet_id) {
+atualizar_planilha<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE,google_sheet_id) {
   
   tabela <- tabela[order(tabela$edital_numero, decreasing = FALSE), ]
   if(excel){
-if (file.exists(arquivo_excel)) {
-  dados_excel <- readWorkbook(arquivo_excel, sheet = 1)
-} else {
-  dados_excel <- data.frame()  # Se o arquivo não existir, criar um DataFrame vazio
-}
-# Filtrar apenas os novos dados (não presentes no arquivo Excel)
-if (nrow(dados_excel) > 0 ) {
-  dados_novos <- anti_join(tabela, dados_excel, by = join_by(edital,indice))
-} else {
-  dados_novos <- tabela  # Se o arquivo Excel estava vazio, todos os dados são novos
-}
-if (nrow(dados_novos) > 0) {
-  # Carregar ou criar um novo workbook
-  if (file.exists(arquivo_excel)) {
-    wb <- loadWorkbook(arquivo_excel)
-  } else {
-    wb <- createWorkbook()
-    addWorksheet(wb, "Editais")
-  }
-  
-  # Adicionar novos dados ao final do arquivo Excel
-  writeData(wb, "Editais", dados_novos, startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1),colNames=FALSE)
-  
-  # Salvar o workbook
-  saveWorkbook(wb, arquivo_excel, overwrite = TRUE)
-  cat("Novos dados adicionados ao arquivo 'Editais.xlsx'.\n")
-} else {
-  cat("Não há novos dados para adicionar.\n")
-}
+    if (file.exists(arquivo_excel)) {
+      dados_excel <- readWorkbook(arquivo_excel, sheet = 1)
+    } else {
+      dados_excel <- data.frame()  # Se o arquivo não existir, criar um DataFrame vazio
+    }
+    # Filtrar apenas os novos dados (não presentes no arquivo Excel)
+    if (nrow(dados_excel) > 0 ) {
+      dados_novos <- anti_join(tabela, dados_excel, by = join_by(edital,indice))
+    } else {
+      dados_novos <- tabela  # Se o arquivo Excel estava vazio, todos os dados são novos
+    }
+    if (nrow(dados_novos) > 0) {
+      # Carregar ou criar um novo workbook
+      if (file.exists(arquivo_excel)) {
+        wb <- loadWorkbook(arquivo_excel)
+      } else {
+        wb <- createWorkbook()
+        addWorksheet(wb, "Editais")
+      }
+      
+      # Adicionar novos dados ao final do arquivo Excel
+      writeData(wb, "Editais", dados_novos, startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1),colNames=FALSE)
+      
+      # Salvar o workbook
+      saveWorkbook(wb, arquivo_excel, overwrite = TRUE)
+      cat("Novos dados adicionados ao arquivo 'Editais.xlsx'.\n")
+    } else {
+      cat("Não há novos dados para adicionar.\n")
+    }
   }
   if(sheets){
     dados_google_sheet <- read_sheet(google_sheet_id)
@@ -344,7 +332,7 @@ if (nrow(dados_novos) > 0) {
   }
 }
 
-atualizar_excel(sheets = FALSE) # Atualizar excel
+atualizar_planilha(sheets = FALSE) # Atualizar excel
 
-atualizar_excel(excel=FALSE, google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheet
+atualizar_planilha(excel=FALSE, google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheet
 2
