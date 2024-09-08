@@ -1,12 +1,12 @@
 library(stringr)
+library(tidytable)
 library(DBI)
 library(RSQLite)
 library(rvest)
-library(dplyr)
-library(readxl)
 library(openxlsx)
 library(pdftools)
 library(data.table)
+library(dplyr)
 
 # Conectar ao banco de dados SQLite
 db <- dbConnect(RSQLite::SQLite(), dbname = "editais.sqlite")
@@ -311,7 +311,7 @@ tabela <- dbReadTable(db, "editais",check.names=FALSE) #Lendo banco de dados
 dbDisconnect(db)
 
 
-# Importando pro excel e google sheets ----
+######### Importando pro excel e google sheets ----
 
 library(googlesheets4)
 
