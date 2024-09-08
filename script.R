@@ -255,7 +255,7 @@ for (j in 1:length(selected_hospital_links)) {
                     "Obs. Colocado" = obs_colocado
                   )))
                 }
-
+                
               }
               
             }, silent = TRUE) # Adiciona silent para suprimir mensagens de erro
@@ -271,7 +271,7 @@ for (j in 1:length(selected_hospital_links)) {
     if (!is.null(next_page_url) && !is.na(next_page_url) && next_page_url != "") {
       current_page_url <- next_page_url
       message(paste("Navegando para a próxima página:", current_page_url))  # Debugging: Verificar URL da próxima página
-
+      
     } else {
       message("Não há mais páginas para navegar.")
       break  # Interrompe o loop se não houver próxima página
@@ -311,7 +311,7 @@ tabela <- dbReadTable(db, "editais",check.names=FALSE) #Lendo banco de dados
 dbDisconnect(db)
 
 
-######### Importando pro excel e google sheets ----
+############## Importando pro excel e google sheets -----------------------
 
 library(googlesheets4)
 
