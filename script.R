@@ -386,7 +386,8 @@ atualizar_planilha<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE
   if(sheets){
     dados_google_sheet <- read_sheet(google_sheet_id)
     if (nrow(dados_google_sheet) > 0) {
-      dados_novos_google <- anti_join(tabela, dados_google_sheet, by = join_by(Edital,Índice))
+      names(dados_google_sheet) <- names(tabela)
+      dados_novos_google <- dplyr::anti_join(tabela, dados_google_sheet, by = dplyr::join_by(Edital,Índice))
     } else {
       dados_novos_google <- tabela  # Se o Google Sheet estava vazio, todos os dados são novos
     }
@@ -403,5 +404,5 @@ atualizar_planilha<-function(arquivo_excel="Editais.xlsx",excel=TRUE,sheets=TRUE
 
 atualizar_planilha(sheets = FALSE) # Atualizar excel
 
-atualizar_planilha(excel=FALSE, google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheet
+atualizar_planilha(excel=FALSE, google_sheet_id="https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheets
 2
