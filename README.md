@@ -1,6 +1,7 @@
 <h1 align="center">Extracao-convocados-EBSERH-2023</h1>
 
 <p align="center">
+	<img src="https://img.shields.io/badge/SQLite-%2307405e.svg?logo=sqlite&logoColor=white) alt="SQLite">
 	<img src="https://img.shields.io/badge/R-276DC3.svg?style=default&logo=R&logoColor=white" alt="R">
 </p>
 
@@ -30,13 +31,15 @@ O script varre cada linha do PDF e extrai as seguintes informações:
 - **Microrregião**: Determinada com base no hospital de convocação.
 - **Hospital**: Nome do hospital responsável pela convocação.
 - **Número do Edital**: Número identificador do edital.
+- **Tipo de Edital**: Categoria associada ao edital, como "Lista microrregional" ou "Convocação temporária". Extraído do nome do edital.
 - **Edital**: O nome do arquivo do edital.
 - **Data**: A data em que o edital foi publicado.
 - **Índice**: Índice do cargo na convocação (ex.: `1.1`, `1.2`, etc.).
 - **Cargo**: O cargo para o qual o convocado foi selecionado.
 - **Obs. Cargo**: Informações adicionais sobre o cargo, caso estejam presentes.
+- **Posição**: Colocação do candidato convocado conforme ordem de classificação.
 - **Nome**: Nome do convocado.
-- **Obs. Colocado**: Observações sobre a posição ou colocação do convocado (ex.: aprovado, reserva, etc.).
+- **Obs. Colocado 1 e 2**: Observações adicionais sobre a colocação do convocado (ex.: fim da fila, desistência, etc.).
 
 As informações são extraídas utilizando padrões de texto e expressões regulares esperadas na formatação do edital.
 
@@ -51,7 +54,7 @@ No final do script, temos a opção de exportação dos dados para uma planilha 
     atualizar_planilha(sheets = FALSE)  # Apenas exporta para Excel
     ```
 
-- **Atualizar Google Sheets**: Se você quiser exportar os dados para sua própria Google Sheet, substitua o `google_sheet_id` no script e use o seguinte comando:
+- **Atualizar Google Sheets**: Se você quiser exportar os dados para sua própria Google Sheet, substitua o `google_sheet_id` no script conforme o seguinte comando:
     ```R
     atualizar_planilha(excel = FALSE, google_sheet_id = "SUA_GOOGLE_SHEET_ID")
     ```
