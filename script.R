@@ -15,14 +15,14 @@ dbExecute(db, "
   CREATE TABLE IF NOT EXISTS editais (
     Microrregião TEXT,
     Hospital TEXT,
-    `Número do edital` TEXT,
+    `Número do edital` INTEGER,
     `Tipo de edital` TEXT,
     Edital TEXT,
     Data TEXT,
     Índice TEXT,
     Cargo TEXT,
     `Obs. Cargo` TEXT,
-    `Posição` TEXT,
+    `Posição` INTEGER,
     Nome TEXT,
     `Obs. Colocado 1` TEXT,
     `Obs. Colocado 2` TEXT
@@ -317,7 +317,7 @@ for (j in 1:length(selected_hospital_links)) {
       message(paste("Navegando para a próxima página:", current_page_url)) # Debugging: Verificar URL da próxima página
     } else {
       message("Não há mais páginas para navegar.")
-      break # Interrompe o loop se não houver próxima página
+      break 
     }
   }
 }
@@ -360,7 +360,7 @@ dbDisconnect(db)
 
 library(googlesheets4)
 
-atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, sheets = TRUE, google_sheet_id) {
+atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, sheets = TRUE, google_sheet_id = NULL) {
   tabela <- tabela[order(tabela$`Número do edital`, decreasing = FALSE), ]
   if (excel) {
     if (file.exists(arquivo_excel)) {
@@ -397,7 +397,6 @@ atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, she
   if (sheets) {
     dados_google_sheet <- read_sheet(google_sheet_id)
     if (nrow(dados_google_sheet) > 0) {
-      names(dados_google_sheet) <- names(tabela)
       dados_novos_google <- dplyr::anti_join(tabela, dados_google_sheet, by = dplyr::join_by(Edital, Índice))
     } else {
       dados_novos_google <- tabela # Se o Google Sheet estava vazio, todos os dados são novos
