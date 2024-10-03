@@ -3,10 +3,11 @@ library(tidytable)
 library(DBI)
 library(RSQLite)
 library(rvest)
-library(openxlsx)
 library(pdftools)
 library(data.table)
 library(dplyr)
+library(openxlsx)
+library(googlesheets4)
 
 # Conectar ao banco de dados SQLite
 db <- dbConnect(RSQLite::SQLite(), dbname = "editais.sqlite")
@@ -317,13 +318,16 @@ for (j in 1:length(selected_hospital_links)) {
       message(paste("Navegando para a próxima página:", current_page_url)) # Debugging: Verificar URL da próxima página
     } else {
       message("Não há mais páginas para navegar.")
-      break 
+      break
     }
   }
 }
 
 df <- bind_rows(data)
 df2 <- df # Backup
+
+df <- df %>%
+  mutate(across(where(is.character), str_squish))
 
 df$`Número do edital` <- as.numeric(df$`Número do edital`)
 
@@ -357,8 +361,6 @@ dbDisconnect(db)
 
 
 ############## Importando pro excel e google sheets -----------------------
-
-library(googlesheets4)
 
 atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, sheets = TRUE, google_sheet_id = NULL) {
   tabela <- tabela[order(tabela$`Número do edital`, decreasing = FALSE), ]
