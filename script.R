@@ -148,7 +148,6 @@ for (j in 1:length(selected_hospital_links)) {
   message(paste0("Hospital:", hospital_name))
 
   while (!is.null(current_page_url)) {
-    # Acessar a página do hospital com tryCatch para capturar possíveis erros
 
     hospital_page <- tryCatch(
       {
@@ -181,7 +180,8 @@ for (j in 1:length(selected_hospital_links)) {
     edital_links <- edital_links[filtered_indices]
     edital_texts <- edital_texts[filtered_indices]
 
-    edital_texts <- str_remove(edital_texts, "\\.pdf$") # removendo .pdf
+    edital_texts <- str_remove(edital_texts, "\\.pdf$") %>%
+      str_squish() # removendo .pdf e espaços extra
 
     # Filtrar apenas os que não foram processados
     unprocessed_indices <- which(!edital_texts %in% editais_processados)
@@ -216,7 +216,7 @@ for (j in 1:length(selected_hospital_links)) {
                 for (line in lines) {
                   # Obtendo data
                   if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
-                    edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+") %>% str_to_sentence()
+                    edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+") %>% str_to_sentence() %>% lubridate::dmy() %>% format("%Y/%m/%d") # Formato ano/mês/dia
                   }
 
                   # Início da lista de convocados: o primeiro subitem de 1 ("1.1")
@@ -353,12 +353,10 @@ apply(df, 1, function(row) {
   )
 })
 
-
 tabela <- dbReadTable(db, "editais", check.names = FALSE) # Lendo banco de dados
 
 # Fechar a conexão com o banco de dados
 dbDisconnect(db)
-
 
 ############## Importando pro excel e google sheets -----------------------
 
