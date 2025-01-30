@@ -240,7 +240,41 @@ for (j in 1:length(selected_hospital_links)) {
                   str_trim() # Remove espaços extras
 
                 itens <- str_extract_all(convocados_text, "\\d+\\.\\d+.*?(?=\\d+\\.\\d+|$)")[[1]]
-
+                
+                if (length(itens) == 0) {
+                  data <- append(data, list(data.table(
+                    Microrregião = microrregiao,
+                    Hospital = hospital_name,
+                    "Número do edital" = edital_numero,
+                    "Tipo de edital" = edital_tipo,
+                    Edital = edital_text,
+                    Data = edital_data,
+                    Índice = NA,
+                    Cargo = "N/A",
+                    "Obs. Cargo" = NA,
+                    "Posição" = NA,
+                    Nome = "N/A",
+                    "Obs. Colocado 1" = NA,
+                    "Obs. Colocado 2" = NA
+                  )))
+                  
+                  ## debug:
+                  print(list(data.table(
+                    Microrregião = microrregiao,
+                    Hospital = hospital_name,
+                    "Número do edital" = edital_numero,
+                    "Tipo de edital" = edital_tipo,
+                    Edital = edital_text,
+                    Data = edital_data,
+                    Índice = NA,
+                    Cargo = "N/A",
+                    "Obs. Cargo" = NA,
+                    "Posição" = NA,
+                    Nome = "N/A",
+                    "Obs. Colocado 1" = NA,
+                    "Obs. Colocado 2" = NA
+                  )))
+                } else {
                 for (item in itens) {
                   indice <- str_extract(item, "^\\s*\\d+\\.\\d+")
                   cargo_completo <- str_trim(str_remove(item, "^\\s*\\d+\\.\\d+\\.?\\s+")) # Captura "Cargo" até a colocação do participante
@@ -302,6 +336,7 @@ for (j in 1:length(selected_hospital_links)) {
                     )))
                   }
                 }
+               }  
               } # , silent = TRUE
             )
           }
