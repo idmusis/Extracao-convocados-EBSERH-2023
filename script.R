@@ -1,16 +1,19 @@
-library(stringr)
-library(tidytable)
-library(DBI)
-library(RSQLite)
-library(rvest)
-library(pdftools)
-library(data.table)
-library(dplyr)
-library(openxlsx)
-library(googlesheets4)
+library(stringr) # Operações com strings
+library(tidytable) # Organização de dados
+library(DBI) # Integração com SQL
+library(RSQLite) # Integração com SQL
+library(rvest) # Scraping de páginas web
+library(pdftools) # Leitura de PDFs
+library(data.table) # Organização de dados
+library(dplyr) # Organização de dados
+library(openxlsx) # Integração com excel
+library(googlesheets4) # Integração com google sheets
+library(cli) # Customização de mensagens de console
 
 # Conectar ao banco de dados SQLite
 db <- dbConnect(RSQLite::SQLite(), dbname = "editais.sqlite")
+
+# Garantir que existe a planilha
 
 dbExecute(db, "
   CREATE TABLE IF NOT EXISTS editais (
@@ -31,23 +34,7 @@ dbExecute(db, "
   )
 ")
 
-
-# Função para adicionar editais ao banco se não existirem
-add_edital_if_new <- function(Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano) {
-  # Verificar se a entrada já existe
-  query <- "SELECT 1 FROM editais WHERE Edital = ? AND Índice = ? AND Nome = ?"
-  exists <- dbGetQuery(db, query, params = list(Edital, Índice, Nome))
-
-  if (nrow(exists) == 0) {
-    insert_query <- "INSERT INTO editais (Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    dbExecute(db, insert_query, params = list(Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano))
-    return(paste("Novo edital adicionado: ", Edital))
-  } else {
-    return(paste("Edital já existe:", Edital))
-  }
-}
-
+# Objetos --------------------------
 
 # Ler a página principal e extrair os links dos hospitais
 hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/concurso-no-01-2023-ebserh-nacional/convocacoes")
@@ -110,6 +97,24 @@ microrregiao_map <- list(
 
 editais_processados <- unique((dbGetQuery(db, "SELECT Edital FROM editais"))$Edital)
 
+# Funções -------------
+
+# Função para adicionar editais ao banco se não existirem
+add_edital_if_new <- function(Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano) {
+  # Verificar se a entrada já existe
+  query <- "SELECT 1 FROM editais WHERE Edital = ? AND Índice = ? AND Nome = ?"
+  exists <- dbGetQuery(db, query, params = list(Edital, Índice, Nome))
+
+  if (nrow(exists) == 0) {
+    insert_query <- "INSERT INTO editais (Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    dbExecute(db, insert_query, params = list(Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano))
+    return(paste("Novo edital adicionado: ", Edital))
+  } else {
+    return(paste("Edital já existe:", Edital))
+  }
+}
+
 # Função para obter a microrregião baseada no hospital
 get_microrregiao <- function(hospital) {
   hospital_upper <- toupper(hospital)
@@ -135,10 +140,134 @@ page_contains_valid_links <- function(page) {
   return(length(links) > 0)
 }
 
+extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_text) {
+  # Lista para armazenar os dados extraídos
+  dados_extraidos <- list()
+  pdf_text <- pdftools::pdf_text(pdf_link)
+  # Divide o texto em linhas
+  lines <- unlist(strsplit(pdf_text, "\n"))
+
+  # Inicializa variáveis
+  convocados <- FALSE
+  convocados_text <- ""
+
+  # Processa cada linha do PDF
+  for (line in lines) {
+    # Extrai a data do edital
+    if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
+      edital_data <- stringr::str_extract(line, "\\d+ DE \\w+ DE \\d+") %>%
+        stringr::str_to_sentence() %>%
+        lubridate::dmy() %>%
+        format("%Y/%m/%d")
+    }
+
+    # Início da lista de convocados: o primeiro subitem de 1 ("1.1")
+    if (grepl("^\\s*1\\.1 ", line)) {
+      convocados <- TRUE
+    }
+
+    # Coleta os convocados até encontrar um marcador de fim
+    # Fim da lista de convocados: linhas com "2. "
+    if (convocados) {
+      if (grepl("^\\s*2\\.", line)) {
+        convocados <- FALSE
+      } else {
+        convocados_text <- paste(convocados_text, line, sep = " ")
+        convocados_text <- gsub("^ *|(?<= ) | *$", "", convocados_text, perl = TRUE)
+      }
+    }
+  }
+
+  # Extrai número e tipo do edital
+  edital_numero <- stringr::str_extract(edital_text, "\\d+")
+  edital_tipo <- stringr::str_extract(edital_text, "(?<=01-2023)\\s*[-–]*\\s*[A-Za-z].*") %>%
+    stringr::str_remove_all(hospital_name) %>%
+    stringr::str_remove_all("^\\s*[-_\\s]+|[-_\\s]+\\s*$") %>% # Remove traços e sublinhados do início e do fim
+    stringr::str_squish()
+
+  # Extrai os itens da lista de convocados
+  itens <- stringr::str_extract_all(convocados_text, "\\d+\\.\\d+.*?(?=\\d+\\.\\d+|$)")[[1]]
+
+  # Remove itens que contêm palavras-chave que indicam que não são nomes de convocados
+  itens <- itens[!grepl("deverá|poderá|conforme|\\d+/\\d+/\\d+|Campus|localizado|av\\.|esocial", itens, ignore.case = TRUE)]
+
+
+  # Se não houver itens convocados, adiciona entrada padrão
+  if (length(itens) == 0) {
+    dados_extraidos <- append(dados_extraidos, list(data.table::data.table(
+      Microrregião = microrregiao,
+      Hospital = hospital_name,
+      "Número do edital" = edital_numero,
+      "Tipo de edital" = edital_tipo,
+      Edital = edital_text,
+      Data = ifelse(exists("edital_data"), edital_data, NA),
+      Índice = NA,
+      Cargo = "N/A",
+      "Obs. Cargo" = NA,
+      "Posição" = NA,
+      Nome = "N/A",
+      "Obs. Colocado 1" = NA,
+      "Obs. Colocado 2" = NA,
+      Ano = ifelse(exists("edital_data"), lubridate::year(edital_data), NA)
+    )))
+  } else {
+    # Processa cada item convocado
+    for (item in itens) {
+      indice <- stringr::str_extract(item, "^\\s*\\d+\\.\\d+")
+      cargo_completo <- stringr::str_trim(stringr::str_remove(item, "^\\s*\\d+\\.\\d+\\.?\\s+"))
+      cargo <- stringr::str_trim(stringr::str_extract(cargo_completo, "^[^\\(ºª\\d]+"))
+      obs_cargo <- stringr::str_extract(cargo_completo, "\\([^\\)]+\\)") %>%
+        stringr::str_remove_all("[\\(\\)]")
+
+      # Extrai nomes e posições
+      nomes <- stringr::str_extract_all(cargo_completo, "\\d+[ºª] [^;]+")[[1]]
+
+      # Adiciona cada nome à tabela
+      for (nome in nomes) {
+        obs_colocados <- stringr::str_extract_all(nome, "\\(([^\\)]+)\\)")[[1]]
+        posicao <- stringr::str_extract(nome, "\\d+\\s*[ºª]") %>%
+          stringr::str_trim() %>%
+          stringr::str_remove_all("[ºª]")
+        nome <- stringr::str_trim(stringr::str_remove_all(nome, "\\d+\\s*[ºª]|\\([^\\)]+\\)"))
+
+        # Define observações adicionais
+        obs_colocado_1 <- if (length(obs_colocados) >= 1) stringr::str_remove_all(obs_colocados[1], "[\\(\\)]") else NA
+        obs_colocado_2 <- if (length(obs_colocados) >= 2) {
+          paste(stringr::str_remove_all(obs_colocados[2:length(obs_colocados)], "[\\(\\)]"), collapse = "; ")
+        } else {
+          NA
+        }
+
+        dados_extraidos <- append(dados_extraidos, list(data.table::data.table(
+          Microrregião = microrregiao,
+          Hospital = hospital_name,
+          "Número do edital" = edital_numero,
+          "Tipo de edital" = edital_tipo,
+          Edital = edital_text,
+          Data = ifelse(exists("edital_data"), edital_data, NA),
+          Índice = indice,
+          Cargo = cargo,
+          "Obs. Cargo" = obs_cargo,
+          "Posição" = posicao,
+          Nome = nome,
+          "Obs. Colocado 1" = obs_colocado_1,
+          "Obs. Colocado 2" = obs_colocado_2,
+          Ano = ifelse(exists("edital_data"), lubridate::year(edital_data), NA)
+        )))
+      }
+    }
+  }
+
+  return(dados_extraidos)
+}
+
+# Filtrar hospitais específicos
+# selected_hospital_names <- selected_hospital_names[grepl("univasf|sede|ufmg", selected_hospital_names, ignore.case = TRUE)]
+# selected_hospital_links <- selected_hospital_links[grepl("univasf|sede|ufmg", selected_hospital_links, ignore.case = TRUE)]
+
+# Início do loop ----------------
+
 data <- list()
-
-# inicio do loop ----
-
 # Inicializar URL da página e número da página para cada hospital
 for (j in 1:length(selected_hospital_links)) {
   hospital_name <- selected_hospital_names[j]
@@ -146,15 +275,16 @@ for (j in 1:length(selected_hospital_links)) {
   current_page_url <- selected_hospital_links[j]
   current_page_number <- 0
 
-  message(paste0("Hospital:", hospital_name))
+  cli_h2(paste0("Hospital: ", hospital_name)) # Print pro console
 
   while (!is.null(current_page_url)) {
     hospital_page <- tryCatch(
       {
+        Sys.sleep(sample(10, 1) * 0.1) # Delay para evitar erros
         read_html(current_page_url)
       },
       error = function(e) {
-        message(paste("Erro ao acessar a página do hospital:", hospital_name, "URL:", current_page_url))
+        cli_alert_danger(paste("Erro ao acessar a página do hospital: ", hospital_name, "; URL: ", current_page_url, sep = ""))
         message(e)
         return(NULL)
       }
@@ -165,7 +295,7 @@ for (j in 1:length(selected_hospital_links)) {
       break
     }
 
-    # Encontrar todos os editais do hospital
+    # Encontrar todos os editais do hospital na página
     edital_links <- hospital_page %>%
       html_nodes("a[href*='/view']") %>%
       html_attr("href")
@@ -190,7 +320,8 @@ for (j in 1:length(selected_hospital_links)) {
 
 
     if (length(edital_links) > 0) {
-      # Loop para percorrer todos os editais do hospital
+      ## Loop para percorrer todos os editais do hospital ------
+
       for (i in 1:length(edital_links)) {
         edital_text <- edital_texts[i]
         edital_url <- edital_links[i]
@@ -198,126 +329,25 @@ for (j in 1:length(selected_hospital_links)) {
         if (length(edital_url) > 0 && (!is.na(edital_url) && nchar(edital_url) > 0)) {
           # Construir e verificar link do PDF
           pdf_link <- sub("/view$", "/@@download/file", edital_url)
-          message(paste("Link do PDF:", pdf_link)) # debug
+          cli_alert_success(paste("Link do PDF:", pdf_link)) # Print pro console
 
           if (!is.na(pdf_link) && nchar(pdf_link) > 0) {
             # Tentar extrair texto do PDF, capturando erros
             try(
               {
-                pdf_text <- pdf_text(pdf_link)
+                Sys.sleep(sample(10, 1) * 0.1) # Delay para evitar erros
 
-                # Parsear o texto do PDF
-                lines <- unlist(strsplit(pdf_text, "\n"))
+                item_adicionado <- extrair_dados_edital(
+                  pdf_link = pdf_link,
+                  hospital_name = hospital_name,
+                  microrregiao = microrregiao,
+                  edital_text = edital_text
+                )
 
-                # Verificando as linhas que contêm convocados
-                convocados <- FALSE
-                convocados_text <- ""
+                data <- append(data, item_adicionado)
 
-                for (line in lines) {
-                  # Obtendo data
-                  if (grepl(", DE \\d+ DE \\w+ DE \\d+", line)) {
-                    edital_data <- str_extract(line, "\\d+ DE \\w+ DE \\d+") %>%
-                      str_to_sentence() %>%
-                      lubridate::dmy() %>%
-                      format("%Y/%m/%d") # Formato ano/mês/dia
-                  }
-
-                  # Início da lista de convocados: o primeiro subitem de 1 ("1.1")
-                  if (grepl("^\\s*1\\.1 ", line)) {
-                    convocados <- TRUE
-                  }
-                  if (convocados) {
-                    if (grepl("^\\s*2\\.", line)) { # Fim da lista de convocados: linhas com "2. "
-                      convocados <- FALSE
-                    } else {
-                      convocados_text <- paste(convocados_text, line, sep = " ")
-                      convocados_text <- gsub("^ *|(?<= ) | *$", "", convocados_text, perl = TRUE) # Removendo espaços adicionais
-                    }
-                  }
-                }
-
-                edital_numero <- str_extract(edital_text, "\\d+")
-                edital_tipo <- str_extract(edital_text, "(?<=01-2023)\\s*[-–]*\\s*[A-Za-z].*") %>%
-                  str_remove_all(hospital_name) %>%
-                  str_remove_all("^\\s*[-_\\s]+|[-_\\s]+\\s*$") %>% # Remove traços e sublinhados do início e do fim
-                  str_trim() # Remove espaços extras
-
-                itens <- str_extract_all(convocados_text, "\\d+\\.\\d+.*?(?=\\d+\\.\\d+|$)")[[1]]
-
-                if (length(itens) == 0) {
-                  item_adicionado <- list(data.table(
-                    Microrregião = microrregiao,
-                    Hospital = hospital_name,
-                    "Número do edital" = edital_numero,
-                    "Tipo de edital" = edital_tipo,
-                    Edital = edital_text,
-                    Data = edital_data,
-                    Índice = NA,
-                    Cargo = "N/A",
-                    "Obs. Cargo" = NA,
-                    "Posição" = NA,
-                    Nome = "N/A",
-                    "Obs. Colocado 1" = NA,
-                    "Obs. Colocado 2" = NA,
-                    Ano = year(edital_data)
-                  ))
-
-                  data <- append(data, item_adicionado)
-
-                  ## debug:
-                  print(item_adicionado)
-                } else {
-                  for (item in itens) {
-                    indice <- str_extract(item, "^\\s*\\d+\\.\\d+")
-                    cargo_completo <- str_trim(str_remove(item, "^\\s*\\d+\\.\\d+\\.?\\s+")) # Captura "Cargo" até a colocação do participante
-                    cargo <- str_trim(str_extract(cargo_completo, "^[^\\(ºª\\d]+")) # Captura o cargo até o primeiro parêntese ou número
-                    obs_cargo <- str_extract(cargo_completo, "\\([^\\)]+\\)") %>%
-                      str_remove_all("[\\(\\)]") # Captura a observação dentro dos parênteses
-                    # Extraindo e concatenando todos os nomes listados
-                    nomes <- str_extract_all(cargo_completo, "\\d+[ºª] [^;]+")[[1]] # Captura todos os nomes listados
-
-                    # Adicionando os dados à lista
-                    for (nome in nomes) {
-                      obs_colocados <- str_extract_all(nome, "\\(([^\\)]+)\\)")[[1]]
-                      posicao <- str_extract(nome, "\\d+\\s*[ºª]") %>%
-                        str_trim() %>%
-                        str_remove_all("[ºª]")
-                      nome <- str_trim(str_remove_all(nome, "\\d+\\s*[ºª]|\\([^\\)]+\\)"))
-
-                      # Extrair as observações, se existirem
-                      # str_remove_all remove parenteses
-                      obs_colocado_1 <- if (length(obs_colocados) >= 1) str_remove_all(obs_colocados[1], "[\\(\\)]") else NA
-                      obs_colocado_2 <- if (length(obs_colocados) >= 2) {
-                        # Concatenar todas as observações a partir da segunda
-                        paste(str_remove_all(obs_colocados[2:length(obs_colocados)], "[\\(\\)]"), collapse = "; ")
-                      } else {
-                        NA
-                      }
-
-                      item_adicionado <- list(data.table(
-                        Microrregião = microrregiao,
-                        Hospital = hospital_name,
-                        "Número do edital" = edital_numero,
-                        "Tipo de edital" = edital_tipo,
-                        Edital = edital_text,
-                        Data = edital_data,
-                        Índice = indice,
-                        Cargo = cargo,
-                        "Obs. Cargo" = obs_cargo,
-                        "Posição" = posicao,
-                        Nome = nome,
-                        "Obs. Colocado 1" = obs_colocado_1,
-                        "Obs. Colocado 2" = obs_colocado_2,
-                        Ano = year(edital_data)
-                      ))
-
-                      data <- append(data, item_adicionado)
-
-                      ## debug:
-                      print(item_adicionado)
-                    }
-                  }
-                }
+                ## debug:
+                print(as.data.table(item_adicionado))
               } # , silent = TRUE
             )
           }
@@ -331,13 +361,16 @@ for (j in 1:length(selected_hospital_links)) {
 
     if (!is.null(next_page_url) && !is.na(next_page_url) && next_page_url != "") {
       current_page_url <- next_page_url
-      message(paste("Navegando para a próxima página:", current_page_url)) # Debugging: Verificar URL da próxima página
+      cli_alert_info(paste("Navegando para a próxima página:", current_page_url))
     } else {
-      message("Não há mais páginas para navegar.")
+      cli_alert_info("Não há mais páginas para navegar.")
       break
     }
   }
+  cli_progress_step("{j}/{length(selected_hospital_links)} hospitais processados.") # Atualizando progresso no console
 }
+
+# Fim do loop ----------
 
 df <- bind_rows(data)
 df2 <- df # Backup
