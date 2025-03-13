@@ -39,7 +39,6 @@ dbExecute(db, "
 # Ler a página principal e extrair os links dos hospitais
 hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/concurso-no-01-2023-ebserh-nacional/convocacoes")
 
-
 selected_hospital_links <- hospital_page %>%
   html_nodes(".card a") %>%
   html_attr("href")
@@ -100,7 +99,9 @@ editais_processados <- unique((dbGetQuery(db, "SELECT Edital FROM editais"))$Edi
 # Funções -------------
 
 # Função para adicionar editais ao banco se não existirem
+
 add_edital_if_new <- function(Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano) {
+  
   # Verificar se a entrada já existe
   query <- "SELECT 1 FROM editais WHERE Edital = ? AND Índice = ? AND Nome = ?"
   exists <- dbGetQuery(db, query, params = list(Edital, Índice, Nome))
@@ -262,14 +263,16 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
 }
 
 # Filtrar hospitais específicos
-# selected_hospital_names <- selected_hospital_names[grepl("univasf|sede|ufmg", selected_hospital_names, ignore.case = TRUE)]
-# selected_hospital_links <- selected_hospital_links[grepl("univasf|sede|ufmg", selected_hospital_links, ignore.case = TRUE)]
+# selected_hospital_names <- selected_hospital_names[grepl("ufpel|furg|ufsm|ufsc|unirio|ufrj|ufrr", selected_hospital_names, ignore.case = TRUE)]
+# selected_hospital_links <- selected_hospital_links[grepl("ufpel|furg|ufsm|ufsc|unirio|ufrj|ufrr", selected_hospital_links, ignore.case = TRUE)]
 
 # Início do loop ----------------
 
 data <- list()
+
 # Inicializar URL da página e número da página para cada hospital
 for (j in 1:length(selected_hospital_links)) {
+  
   hospital_name <- selected_hospital_names[j]
   microrregiao <- get_microrregiao(hospital_name)
   current_page_url <- selected_hospital_links[j]
@@ -284,7 +287,7 @@ for (j in 1:length(selected_hospital_links)) {
         read_html(current_page_url)
       },
       error = function(e) {
-        cli_alert_danger(paste("Erro ao acessar a página do hospital: ", hospital_name, "; URL: ", current_page_url, sep = ""))
+        cli_alert_danger("Erro ao acessar a página do hospital: {hospital_name}, URL: {.url {current_page_url}}")
         message(e)
         return(NULL)
       }
@@ -329,7 +332,7 @@ for (j in 1:length(selected_hospital_links)) {
         if (length(edital_url) > 0 && (!is.na(edital_url) && nchar(edital_url) > 0)) {
           # Construir e verificar link do PDF
           pdf_link <- sub("/view$", "/@@download/file", edital_url)
-          cli_alert_success(paste("Link do PDF:", pdf_link)) # Print pro console
+          cli_alert_success("Link do PDF: {.url {pdf_link}}") # Print pro console
 
           if (!is.na(pdf_link) && nchar(pdf_link) > 0) {
             # Tentar extrair texto do PDF, capturando erros
@@ -361,7 +364,7 @@ for (j in 1:length(selected_hospital_links)) {
 
     if (!is.null(next_page_url) && !is.na(next_page_url) && next_page_url != "") {
       current_page_url <- next_page_url
-      cli_alert_info(paste("Navegando para a próxima página:", current_page_url))
+      cli_alert_info("Navegando para a próxima página: {.url {current_page_url}}")
     } else {
       cli_alert_info("Não há mais páginas para navegar.")
       break
@@ -408,10 +411,17 @@ tabela <- dbReadTable(db, "editais", check.names = FALSE) # Lendo banco de dados
 # Fechar a conexão com o banco de dados
 dbDisconnect(db)
 
-############## Importando pro excel e google sheets -----------------------
+# Importando pro excel e google sheets -----------------------
 
-atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, sheets = TRUE, google_sheet_id = NULL, planilha = "Convocados_interno") {
+atualizar_planilha <- function(arquivo_excel = "Editais.xlsx",
+                               excel = TRUE,
+                               sheets = TRUE,
+                               google_sheet_id = NULL,
+                               planilha = "Convocados_interno") {
+  
+  # Depende da importação prévia da tabela com dbReadtable
   tabela <- tabela[order(tabela$`Número do edital`, decreasing = FALSE), ]
+  
   if (excel) {
     if (file.exists(arquivo_excel)) {
       dados_excel <- readWorkbook(arquivo_excel, sheet = 1)
@@ -435,7 +445,12 @@ atualizar_planilha <- function(arquivo_excel = "Editais.xlsx", excel = TRUE, she
       }
 
       # Adicionar novos dados ao final do arquivo Excel
-      writeData(wb, "Editais", dados_novos, startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1), colNames = FALSE)
+      writeData(wb,
+        "Editais",
+        dados_novos,
+        startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1),
+        colNames = FALSE
+      )
 
       # Salvar o workbook
       saveWorkbook(wb, arquivo_excel, overwrite = TRUE)
