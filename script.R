@@ -37,7 +37,7 @@ dbExecute(db, "
 # Objetos --------------------------
 
 # Ler a página principal e extrair os links dos hospitais
-hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/concurso-no-01-2023-ebserh-nacional/convocacoes")
+hospital_page <- read_html("https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2024/convocacoes")
 
 selected_hospital_links <- hospital_page %>%
   html_nodes(".card a") %>%
@@ -50,19 +50,15 @@ selected_hospital_names <- hospital_page %>%
 
 # Dicionário para mapear hospitais para microrregiões
 microrregiao_map <- list(
-  "EBSERH-SEDE" = 4,
-  "HUB-UNB" = 4,
-  "HC-UFG" = 4,
-  "HU-UFGD" = 4,
-  "HUMAP-UFMS" = 4,
-  "HUJM-UFMT" = 4,
-  "HDT-UFT" = 4,
-  "HU-UFRR" = 1, # não está na lista
-  "HUGV-UFAM" = 1,
+  # MR 1
   "HU-UNIFAP" = 1,
+  "HU-UFRR" = 1,
+  "HUGV-UFAM" = 1,
   "HU-UFMA" = 1,
   "CHU-UFPA" = 1,
   "HU-UFPI" = 1,
+  
+  # MR 2
   "CH-UFC" = 2,
   "HUJB-UFCG" = 2,
   "HUAC-UFCG" = 2,
@@ -70,6 +66,8 @@ microrregiao_map <- list(
   "HUOL-UFRN" = 2,
   "MEJC-UFRN" = 2,
   "HUAB-UFRN" = 2,
+  
+  # MR 3
   "HUPAA-UFAL" = 3,
   "MCO-UFBA" = 3,
   "HUPES-UFBA" = 3,
@@ -77,6 +75,17 @@ microrregiao_map <- list(
   "HU-UNIVASF" = 3,
   "HU-UFS" = 3,
   "HUL-UFS" = 3,
+  
+  # MR 4
+  "EBSERH-SEDE" = 4,
+  "HUB-UNB" = 4,
+  "HC-UFG" = 4,
+  "HU-UFGD" = 4,
+  "HUMAP-UFMS" = 4,
+  "HUJM-UFMT" = 4,
+  "HDT-UFT" = 4,
+  
+  # MR 5
   "HUCAM-UFES" = 5,
   "HC-UFMG" = 5,
   "HU-UFJF" = 5,
@@ -84,9 +93,10 @@ microrregiao_map <- list(
   "HC-UFU" = 5,
   "HUAP-UFF" = 5,
   "HUGG-UNIRIO" = 5,
-  "HUGG" = 5,
-  "CH-UFRJ" = 5, # não está na lista
+  "CH-UFRJ" = 5,
   "HU-UFSCAR" = 5,
+  
+  # MR 6
   "CHC-UFPR" = 6,
   "HE-UFPEL" = 6,
   "HU-FURG" = 6,
@@ -105,7 +115,7 @@ add_edital_if_new <- function(Microrregião, Hospital, `Número do edital`, `Tip
   # Verificar se a entrada já existe
   query <- "SELECT 1 FROM editais WHERE Edital = ? AND Índice = ? AND Nome = ?"
   exists <- dbGetQuery(db, query, params = list(Edital, Índice, Nome))
-
+  
   if (nrow(exists) == 0) {
     insert_query <- "INSERT INTO editais (Microrregião, Hospital, `Número do edital`, `Tipo de edital`, Edital, Data, Índice, Cargo, `Obs. Cargo`, `Posição`, Nome, `Obs. Colocado 1`, `Obs. Colocado 2`, Ano)
                      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -135,9 +145,9 @@ page_contains_valid_links <- function(page) {
   links <- page %>%
     html_nodes("a[href*='/view']") %>%
     html_attr("href")
-  filtered_indices <- which(grepl("/view", links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", links))
+  filtered_indices <- which(grepl("/view", links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2024/", links))
   links <- links[filtered_indices]
-
+  
   return(length(links) > 0)
 }
 
@@ -147,11 +157,11 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
   pdf_text <- pdftools::pdf_text(pdf_link)
   # Divide o texto em linhas
   lines <- unlist(strsplit(pdf_text, "\n"))
-
+  
   # Inicializa variáveis
   convocados <- FALSE
   convocados_text <- ""
-
+  
   # Processa cada linha do PDF
   for (line in lines) {
     # Extrai a data do edital
@@ -161,12 +171,12 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
         lubridate::dmy() %>%
         format("%Y/%m/%d")
     }
-
+    
     # Início da lista de convocados: o primeiro subitem de 1 ("1.1")
     if (grepl("^\\s*1\\.1 ", line)) {
       convocados <- TRUE
     }
-
+    
     # Coleta os convocados até encontrar um marcador de fim
     # Fim da lista de convocados: linhas com "2. "
     if (convocados) {
@@ -178,21 +188,21 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
       }
     }
   }
-
+  
   # Extrai número e tipo do edital
   edital_numero <- stringr::str_extract(edital_text, "\\d+")
-  edital_tipo <- stringr::str_extract(edital_text, "(?<=01-2023)\\s*[-–]*\\s*[A-Za-z].*") %>%
+  edital_tipo <- stringr::str_extract(edital_text, "(?<=01-2024)\\s*[-–]*\\s*[A-Za-z].*") %>%
     stringr::str_remove_all(hospital_name) %>%
     stringr::str_remove_all("^\\s*[-_\\s]+|[-_\\s]+\\s*$") %>% # Remove traços e sublinhados do início e do fim
     stringr::str_squish()
-
+  
   # Extrai os itens da lista de convocados
   itens <- stringr::str_extract_all(convocados_text, "\\d+\\.\\d+.*?(?=\\d+\\.\\d+|$)")[[1]]
-
+  
   # Remove itens que contêm palavras-chave que indicam que não são nomes de convocados
   itens <- itens[!grepl("deverá|poderá|conforme|\\d+/\\d+/\\d+|Campus|localizado|av\\.|esocial", itens, ignore.case = TRUE)]
-
-
+  
+  
   # Se não houver itens convocados, adiciona entrada padrão
   if (length(itens) == 0) {
     dados_extraidos <- append(dados_extraidos, list(data.table::data.table(
@@ -219,10 +229,10 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
       cargo <- stringr::str_trim(stringr::str_extract(cargo_completo, "^[^\\(ºª\\d]+"))
       obs_cargo <- stringr::str_extract(cargo_completo, "\\([^\\)]+\\)") %>%
         stringr::str_remove_all("[\\(\\)]")
-
+      
       # Extrai nomes e posições
       nomes <- stringr::str_extract_all(cargo_completo, "\\d+[ºª] [^;]+")[[1]]
-
+      
       # Adiciona cada nome à tabela
       for (nome in nomes) {
         obs_colocados <- stringr::str_extract_all(nome, "\\(([^\\)]+)\\)")[[1]]
@@ -230,7 +240,7 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
           stringr::str_trim() %>%
           stringr::str_remove_all("[ºª]")
         nome <- stringr::str_trim(stringr::str_remove_all(nome, "\\d+\\s*[ºª]|\\([^\\)]+\\)"))
-
+        
         # Define observações adicionais
         obs_colocado_1 <- if (length(obs_colocados) >= 1) stringr::str_remove_all(obs_colocados[1], "[\\(\\)]") else NA
         obs_colocado_2 <- if (length(obs_colocados) >= 2) {
@@ -238,7 +248,7 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
         } else {
           NA
         }
-
+        
         dados_extraidos <- append(dados_extraidos, list(data.table::data.table(
           Microrregião = microrregiao,
           Hospital = hospital_name,
@@ -258,7 +268,7 @@ extrair_dados_edital <- function(pdf_link, hospital_name, microrregiao, edital_t
       }
     }
   }
-
+  
   return(dados_extraidos)
 }
 
@@ -277,9 +287,9 @@ for (j in 1:length(selected_hospital_links)) {
   microrregiao <- get_microrregiao(hospital_name)
   current_page_url <- selected_hospital_links[j]
   current_page_number <- 0
-
+  
   cli_h2(paste0("Hospital: ", hospital_name)) # Print pro console
-
+  
   while (!is.null(current_page_url)) {
     hospital_page <- tryCatch(
       {
@@ -292,12 +302,12 @@ for (j in 1:length(selected_hospital_links)) {
         return(NULL)
       }
     )
-
+    
     if (is.null(hospital_page)) {
       # Se houve um erro ao ler a página, sair do loop while e continuar com o próximo hospital
       break
     }
-
+    
     # Encontrar todos os editais do hospital na página
     edital_links <- hospital_page %>%
       html_nodes("a[href*='/view']") %>%
@@ -305,26 +315,26 @@ for (j in 1:length(selected_hospital_links)) {
     edital_texts <- hospital_page %>%
       html_nodes("a[href*='/view']") %>%
       html_text()
-
+    
     # Filtrar links que contêm "/view" e começam com a URL do concurso
-    filtered_indices <- which(grepl("/view", edital_links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2023/", edital_links))
-
+    filtered_indices <- which(grepl("/view", edital_links) & grepl("^https://www.gov.br/ebserh/pt-br/acesso-a-informacao/agentes-publicos/concursos-e-selecoes/concursos/2024/", edital_links))
+    
     # Obter os links e textos correspondentes aos índices filtrados
     edital_links <- edital_links[filtered_indices]
     edital_texts <- edital_texts[filtered_indices]
-
+    
     edital_texts <- str_remove(edital_texts, "\\.pdf$") %>%
       str_squish() # removendo .pdf e espaços extra
-
+    
     # Filtrar apenas os que não foram processados
     unprocessed_indices <- which(!edital_texts %in% editais_processados)
     edital_links <- edital_links[unprocessed_indices]
     edital_texts <- edital_texts[unprocessed_indices]
-
-
+    
+    
     if (length(edital_links) > 0) {
       ## Loop para percorrer todos os editais do hospital ------
-
+      
       for (i in 1:length(edital_links)) {
         edital_text <- edital_texts[i]
         edital_url <- edital_links[i]
@@ -333,22 +343,22 @@ for (j in 1:length(selected_hospital_links)) {
           # Construir e verificar link do PDF
           pdf_link <- sub("/view$", "/@@download/file", edital_url)
           cli_alert_success("Link do PDF: {.url {pdf_link}}") # Print pro console
-
+          
           if (!is.na(pdf_link) && nchar(pdf_link) > 0) {
             # Tentar extrair texto do PDF, capturando erros
             try(
               {
                 Sys.sleep(sample(10, 1) * 0.1) # Delay para evitar erros
-
+                
                 item_adicionado <- extrair_dados_edital(
                   pdf_link = pdf_link,
                   hospital_name = hospital_name,
                   microrregiao = microrregiao,
                   edital_text = edital_text
                 )
-
+                
                 data <- append(data, item_adicionado)
-
+                
                 ## debug:
                 print(as.data.table(item_adicionado))
               } # , silent = TRUE
@@ -357,11 +367,11 @@ for (j in 1:length(selected_hospital_links)) {
         }
       }
     }
-
+    
     ## Atualizar o link para a próxima página ----
-
+    
     next_page_url <- get_next_page_url(hospital_page) # Atualiza o link para a próxima página usando o conteúdo HTML da página atual
-
+    
     if (!is.null(next_page_url) && !is.na(next_page_url) && next_page_url != "") {
       current_page_url <- next_page_url
       cli_alert_info("Navegando para a próxima página: {.url {current_page_url}}")
@@ -443,15 +453,15 @@ atualizar_planilha <- function(arquivo_excel = "Editais.xlsx",
         wb <- createWorkbook()
         addWorksheet(wb, "Editais")
       }
-
+      
       # Adicionar novos dados ao final do arquivo Excel
       writeData(wb,
-        "Editais",
-        dados_novos,
-        startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1),
-        colNames = FALSE
+                "Editais",
+                dados_novos,
+                startRow = ifelse(exists("dados_excel"), nrow(dados_excel) + 1, 1),
+                colNames = FALSE
       )
-
+      
       # Salvar o workbook
       saveWorkbook(wb, arquivo_excel, overwrite = TRUE)
       cat("Novos dados adicionados ao arquivo", arquivo_excel, ".\n")
@@ -466,7 +476,7 @@ atualizar_planilha <- function(arquivo_excel = "Editais.xlsx",
     } else {
       dados_novos_google <- tabela # Se o Google Sheet estava vazio, todos os dados são novos
     }
-
+    
     if (nrow(dados_novos_google) > 0) {
       # Adicionar novos dados ao Google Sheet
       sheet_append(google_sheet_id, dados_novos_google, sheet = planilha)
@@ -479,5 +489,5 @@ atualizar_planilha <- function(arquivo_excel = "Editais.xlsx",
 
 atualizar_planilha(sheets = FALSE) # Atualizar excel
 
-atualizar_planilha(excel = FALSE, google_sheet_id = "https://docs.google.com/spreadsheets/d/1LxCUSgQmXJKCzJFKEQHyxPcBbJcSOT52-ghsEV1mmJQ/") # Atualizar google sheets
+atualizar_planilha(excel = FALSE, google_sheet_id = "https://docs.google.com/spreadsheets/d/1ltDGx9CL4PVqD_wEz2DXEw5olcTW9PQhEtmzNT5rXKE/") # Atualizar google sheets
 2
